@@ -193,58 +193,22 @@ export function getDashboardStats(userId: string): DashboardStats {
   return { totalStudents: students.length, totalCollected, totalPending: Math.max(0, totalPending), monthlyCollection, recentPayments, monthlyData };
 }
 
-// ─── SAMPLE DATA SEEDER ───────────────────────────────────────────────────────
+// ─── CLEAR SAMPLE DATA (removes any previously seeded demo students) ──────────
 
-export function seedSampleData(userId: string): void {
-  const existing = getStudents(userId);
-  if (existing.length > 0) return; // don't seed if data already exists
+const SAMPLE_NAMES = ["Arjun Sharma", "Priya Patel", "Rahul Gupta", "Sneha Joshi", "Karan Singh"];
 
-  const batches = ["Morning", "Evening"];
-  const classes = ["Class 9", "Class 10", "Class 11", "Class 12"];
-  const sampleStudents = [
-    { name: "Arjun Sharma", parentName: "Rajesh Sharma", mobile: "9876543210", batch: "Morning", className: "Class 10", totalFee: 12000 },
-    { name: "Priya Patel", parentName: "Suresh Patel", mobile: "9876543211", batch: "Evening", className: "Class 11", totalFee: 15000 },
-    { name: "Rahul Gupta", parentName: "Amit Gupta", mobile: "9876543212", batch: "Morning", className: "Class 9", totalFee: 10000 },
-    { name: "Sneha Joshi", parentName: "Vijay Joshi", mobile: "9876543213", batch: "Evening", className: "Class 12", totalFee: 18000 },
-    { name: "Karan Singh", parentName: "Harpal Singh", mobile: "9876543214", batch: "Morning", className: "Class 10", totalFee: 12000 },
-  ];
+export function clearSampleData(userId: string): void {
+  const students = getStudents(userId);
+  const sampleStudents = students.filter((s) => SAMPLE_NAMES.includes(s.name));
+  if (sampleStudents.length === 0) return;
 
-  const now = new Date();
-  const students: Student[] = sampleStudents.map((s, i) => ({
-    ...s,
-    id: generateId(),
-    userId,
-    email: "",
-    address: "",
-    admissionDate: new Date(now.getFullYear(), now.getMonth() - 2, 1 + i).toISOString().slice(0, 10),
-    status: "active" as const,
-    createdAt: new Date(now.getFullYear(), now.getMonth() - 2, 1 + i).toISOString(),
-  }));
-  saveStudents(userId, students);
+  const sampleIds = new Set(sampleStudents.map((s) => s.id));
+  const cleanStudents = students.filter((s) => !sampleIds.has(s.id));
+  saveStudents(userId, cleanStudents);
 
-  // Add some payments
-  const paymentData = [
-    { studentId: students[0].id, amountPaid: 6000, paymentType: "partial" as const, dueDate: new Date(now.getFullYear(), now.getMonth() + 1, 15).toISOString().slice(0, 10) },
-    { studentId: students[1].id, amountPaid: 15000, paymentType: "full" as const },
-    { studentId: students[2].id, amountPaid: 5000, paymentType: "partial" as const, dueDate: new Date(now.getFullYear(), now.getMonth() + 1, 10).toISOString().slice(0, 10) },
-    { studentId: students[3].id, amountPaid: 18000, paymentType: "full" as const },
-    { studentId: students[4].id, amountPaid: 4000, paymentType: "partial" as const, dueDate: new Date(now.getFullYear(), now.getMonth(), 20).toISOString().slice(0, 10) },
-  ];
-
-  const payments: Payment[] = paymentData.map((p, i) => ({
-    ...p,
-    id: generateId(),
-    userId,
-    receiptNumber: `RCP-${String(i + 1).padStart(4, "0")}`,
-    paymentDate: new Date(now.getFullYear(), now.getMonth() - (i % 2 === 0 ? 1 : 0), 5 + i * 3).toISOString().slice(0, 10),
-    createdAt: new Date(now.getFullYear(), now.getMonth() - (i % 2 === 0 ? 1 : 0), 5 + i * 3).toISOString(),
-    notes: "",
-    dueDate: p.dueDate || "",
-  }));
-  savePayments(userId, payments);
-
-  // Set receipt counter
-  localStorage.setItem(`feetracker_receipt_${userId}`, paymentData.length.toString());
+  const payments = getPayments(userId);
+  const cleanPayments = payments.filter((p) => !sampleIds.has(p.studentId));
+  savePayments(userId, cleanPayments);
 }
 
 // ─── BACKUP / RESTORE ─────────────────────────────────────────────────────────

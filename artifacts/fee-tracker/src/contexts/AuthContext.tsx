@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getSession, login as authLogin, logout as authLogout, signup as authSignup, type Session } from "@/services/auth";
-import { seedSampleData } from "@/services/data";
+import { clearSampleData } from "@/services/data";
 
 interface AuthContextType {
   session: Session | null;
@@ -20,7 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const s = getSession();
     if (s) {
       setSession(s);
-      seedSampleData(s.userId);
+      clearSampleData(s.userId);
     }
     setIsLoading(false);
   }, []);
@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = authLogin(username, password);
     if (result.success && result.session) {
       setSession(result.session);
-      seedSampleData(result.session.userId);
+      clearSampleData(result.session.userId);
     }
     return result;
   };
@@ -38,7 +38,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = authSignup(username, password, coachingName);
     if (result.success && result.session) {
       setSession(result.session);
-      seedSampleData(result.session.userId);
     }
     return result;
   };
