@@ -2,7 +2,10 @@ import jsPDF from "jspdf";
 import type { Student, Payment, CoachingProfile } from "./data";
 
 function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount);
+  // Use "Rs." instead of the rupee symbol (U+20B9) — jsPDF's built-in Helvetica
+  // font is Latin-1 only; U+20B9 maps to 0xB9 (superscript-one) which renders
+  // as a stray "1" before every amount (e.g. 15,000 → 115,000).
+  return "Rs. " + new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(amount);
 }
 
 function formatDate(dateStr: string): string {
