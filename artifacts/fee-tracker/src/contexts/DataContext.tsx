@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import {
   getStudents, addStudent, updateStudent, deleteStudent,
   getPayments, addPayment, deletePayment, getStudentPayments, getTotalPaid,
@@ -9,31 +9,31 @@ import { useAuth } from "./AuthContext";
 
 interface DataContextType {
   // Students
-  students: Student[];
+  students:       Student[];
   refreshStudents: () => void;
-  createStudent: (data: Omit<Student, "id" | "userId" | "createdAt">) => Student;
-  editStudent: (id: string, data: Partial<Student>) => Student | null;
-  removeStudent: (id: string) => void;
+  createStudent:  (data: Omit<Student, "id" | "userId" | "createdAt">) => Student;
+  editStudent:    (id: string, data: Partial<Student>) => Student | null;
+  removeStudent:  (id: string) => void;
 
   // Payments
-  payments: Payment[];
+  payments:        Payment[];
   refreshPayments: () => void;
-  createPayment: (data: Omit<Payment, "id" | "userId" | "receiptNumber" | "createdAt">) => Payment;
-  removePayment: (id: string) => void;
+  createPayment:   (data: Omit<Payment, "id" | "userId" | "receiptNumber" | "createdAt">) => Payment;
+  removePayment:   (id: string) => void;
   getPaymentsForStudent: (studentId: string) => Payment[];
-  getPaidForStudent: (studentId: string) => number;
+  getPaidForStudent:     (studentId: string) => number;
 
   // Stats
-  stats: DashboardStats | null;
+  stats:        DashboardStats | null;
   refreshStats: () => void;
 
   // Profile
-  profile: CoachingProfile | null;
+  profile:        CoachingProfile | null;
   refreshProfile: () => void;
-  updateProfile: (p: CoachingProfile) => CoachingProfile;
+  updateProfile:  (p: CoachingProfile) => CoachingProfile;
 
   // Backup
-  backup: () => string;
+  backup:  () => string;
   restore: (json: string) => { success: boolean; error?: string };
 
   refreshAll: () => void;
@@ -45,15 +45,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const userId = session?.userId || "";
 
-  const [students, setStudents] = useState<Student[]>(() => (userId ? getStudents(userId) : []));
-  const [payments, setPayments] = useState<Payment[]>(() => (userId ? getPayments(userId) : []));
-  const [stats, setStats] = useState<DashboardStats | null>(() => (userId ? getDashboardStats(userId) : null));
-  const [profile, setProfile] = useState<CoachingProfile | null>(() => (userId ? getProfile(userId) : null));
+  const [students, setStudents] = useState<Student[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [stats,    setStats]    = useState<DashboardStats | null>(null);
+  const [profile,  setProfile]  = useState<CoachingProfile | null>(null);
+
+  // Re-read from localStorage whenever userId changes (happens on login / logout).
+  // On login with GAS, AuthContext merges cloud data into localStorage BEFORE
+  // setting the session, so by the time this effect fires the data is already there.
+  useEffect(() => {
+    if (userId) {
+      setStudents(getStudents(userId));
+      setPayments(getPayments(userId));
+      setStats(getDashboardStats(userId));
+      setProfile(getProfile(userId));
+    } else {
+      setStudents([]);
+      setPayments([]);
+      setStats(null);
+      setProfile(null);
+    }
+  }, [userId]);
 
   const refreshStudents = useCallback(() => { if (userId) setStudents(getStudents(userId)); }, [userId]);
   const refreshPayments = useCallback(() => { if (userId) setPayments(getPayments(userId)); }, [userId]);
-  const refreshStats = useCallback(() => { if (userId) setStats(getDashboardStats(userId)); }, [userId]);
-  const refreshProfile = useCallback(() => { if (userId) setProfile(getProfile(userId)); }, [userId]);
+  const refreshStats    = useCallback(() => { if (userId) setStats(getDashboardStats(userId)); },    [userId]);
+  const refreshProfile  = useCallback(() => { if (userId) setProfile(getProfile(userId)); },   [userId]);
 
   const refreshAll = useCallback(() => {
     refreshStudents();
@@ -82,12 +99,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     refreshStats();
   }, [userId, refreshStudents, refreshStats]);
 
-  const createPayment = useCallback((data: Omit<Payment, "id" | "userId" | "receiptNumber" | "createdAt">) => {
-    const p = addPayment(userId, data);
-    refreshPayments();
-    refreshStats();
-    return p;
-  }, [userId, refreshPayments, refreshStats]);
+  const createPayment = useCallback(
+    (data: Omit<Payment, "id" | "userId" | "receiptNumber" | "createdAt">) => {
+      const p = addPayment(userId, data);
+      refreshPayments();
+      refreshStats();
+      return p;
+    },
+    [userId, refreshPayments, refreshStats],
+  );
 
   const removePayment = useCallback((id: string) => {
     deletePayment(userId, id);
@@ -95,11 +115,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     refreshStats();
   }, [userId, refreshPayments, refreshStats]);
 
-  const getPaymentsForStudent = useCallback((studentId: string) =>
-    getStudentPayments(userId, studentId), [userId]);
+  const getPaymentsForStudent = useCallback(
+    (studentId: string) => getStudentPayments(userId, studentId),
+    [userId],
+  );
 
-  const getPaidForStudent = useCallback((studentId: string) =>
-    getTotalPaid(userId, studentId), [userId]);
+  const getPaidForStudent = useCallback(
+    (studentId: string) => getTotalPaid(userId, studentId),
+    [userId],
+  );
 
   const updateProfile = useCallback((p: CoachingProfile) => {
     const saved = saveProfile(userId, p);
@@ -107,8 +131,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return saved;
   }, [userId]);
 
-  const backup = useCallback(() => exportBackup(userId), [userId]);
-
+  const backup  = useCallback(() => exportBackup(userId), [userId]);
   const restore = useCallback((json: string) => {
     const result = importBackup(userId, json);
     if (result.success) refreshAll();

@@ -1,20 +1,30 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getSession, login as authLogin, logout as authLogout, signup as authSignup, type Session } from "@/services/auth";
-import { clearSampleData } from "@/services/data";
+import {
+  getSession,
+  login as authLogin,
+  logout as authLogout,
+  signup as authSignup,
+  type Session,
+} from "@/services/auth";
+import { mergeCloudData, clearSampleData } from "@/services/data";
+import { isGASConfigured } from "@/services/gasApi";
 
 interface AuthContextType {
-  session: Session | null;
-  isLoading: boolean;
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (username: string, password: string, coachingName: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  session:      Session | null;
+  isLoading:    boolean;
+  isSyncing:    boolean;   // true while fetching cloud data on login
+  gasEnabled:   boolean;   // whether the app is connected to Google Sheets
+  login:   (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signup:  (username: string, password: string, coachingName: string) => Promise<{ success: boolean; error?: string }>;
+  logout:  () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session,   setSession]   = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const s = getSession();
@@ -26,20 +36,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
-    const result = authLogin(username, password);
-    if (result.success && result.session) {
-      setSession(result.session);
-      clearSampleData(result.session.userId);
+    setIsSyncing(true);
+    try {
+      const result = await authLogin(username, password);
+      if (result.success && result.session) {
+        // Merge cloud data into localStorage BEFORE setting session so
+        // DataContext's useEffect reads the merged data when userId changes.
+        if (result.cloudData) {
+          mergeCloudData(result.session.userId, result.cloudData);
+        }
+        setSession(result.session);
+        clearSampleData(result.session.userId);
+      }
+      return { success: result.success, error: result.error };
+    } finally {
+      setIsSyncing(false);
     }
-    return result;
   };
 
   const signup = async (username: string, password: string, coachingName: string) => {
-    const result = authSignup(username, password, coachingName);
-    if (result.success && result.session) {
-      setSession(result.session);
+    setIsSyncing(true);
+    try {
+      const result = await authSignup(username, password, coachingName);
+      if (result.success && result.session) {
+        setSession(result.session);
+      }
+      return { success: result.success, error: result.error };
+    } finally {
+      setIsSyncing(false);
     }
-    return result;
   };
 
   const logout = () => {
@@ -48,7 +73,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, isLoading, login, signup, logout }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        isLoading,
+        isSyncing,
+        gasEnabled: isGASConfigured(),
+        login,
+        signup,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

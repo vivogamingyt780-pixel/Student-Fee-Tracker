@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Upload, Download, RotateCcw, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Save, Upload, Download, RotateCcw, CheckCircle2, Cloud, HardDrive } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useData } from "@/contexts/DataContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,51 +12,49 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
 import { changePassword } from "@/services/auth";
-import { getGASUrl, setGASUrl, testGASConnection } from "@/services/data";
 import type { CoachingProfile } from "@/services/data";
 
 const profileSchema = z.object({
-  name: z.string().min(2, "Coaching name is required"),
+  name:      z.string().min(2, "Coaching name is required"),
   ownerName: z.string().optional(),
-  mobile: z.string().optional(),
-  address: z.string().optional(),
+  mobile:    z.string().optional(),
+  address:   z.string().optional(),
 });
 
-const passwordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: z.string().min(6, "New password must be at least 6 characters"),
-  confirmPassword: z.string(),
-}).refine((d) => d.newPassword === d.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
-});
+const passwordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword:     z.string().min(6, "New password must be at least 6 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
-type ProfileValues = z.infer<typeof profileSchema>;
+type ProfileValues  = z.infer<typeof profileSchema>;
 type PasswordValues = z.infer<typeof passwordSchema>;
 
 export default function SettingsPage() {
   const { profile, updateProfile, backup, restore } = useData();
-  const { session } = useAuth();
-  const [logoPreview, setLogoPreview] = useState(profile?.logoBase64 || "");
-  const [profileSuccess, setProfileSuccess] = useState(false);
+  const { session, gasEnabled } = useAuth();
+  const [logoPreview,     setLogoPreview]     = useState(profile?.logoBase64 || "");
+  const [profileSuccess,  setProfileSuccess]  = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
-  const [gasUrl, setGasUrl] = useState(getGASUrl());
-  const [gasStatus, setGasStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
-  const [gasError, setGasError] = useState("");
-  const [restoreMsg, setRestoreMsg] = useState("");
+  const [passwordError,   setPasswordError]   = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [restoreMsg,      setRestoreMsg]      = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const profileForm = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      name: profile?.name || "",
+      name:      profile?.name      || "",
       ownerName: profile?.ownerName || "",
-      mobile: profile?.mobile || "",
-      address: profile?.address || "",
+      mobile:    profile?.mobile    || "",
+      address:   profile?.address   || "",
     },
   });
 
@@ -70,21 +68,18 @@ export default function SettingsPage() {
     if (!file) return;
     if (file.size > 500 * 1024) { alert("Logo must be under 500KB"); return; }
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target?.result as string;
-      setLogoPreview(base64);
-    };
+    reader.onload = (ev) => setLogoPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
   };
 
   const handleProfileSubmit = (values: ProfileValues) => {
     const updated: CoachingProfile = {
-      id: profile?.id || session?.coachingId || "",
-      userId: session?.userId || "",
-      name: values.name,
-      ownerName: values.ownerName || "",
-      mobile: values.mobile || "",
-      address: values.address || "",
+      id:         profile?.id || session?.coachingId || "",
+      userId:     session?.userId || "",
+      name:       values.name,
+      ownerName:  values.ownerName  || "",
+      mobile:     values.mobile     || "",
+      address:    values.address    || "",
       logoBase64: logoPreview,
     };
     updateProfile(updated);
@@ -92,43 +87,33 @@ export default function SettingsPage() {
     setTimeout(() => setProfileSuccess(false), 3000);
   };
 
-  const handlePasswordSubmit = (values: PasswordValues) => {
+  const handlePasswordSubmit = async (values: PasswordValues) => {
     setPasswordError("");
-    const result = changePassword(session!.userId, values.currentPassword, values.newPassword);
-    if (result.success) {
-      setPasswordSuccess(true);
-      passwordForm.reset();
-      setTimeout(() => setPasswordSuccess(false), 3000);
-    } else {
-      setPasswordError(result.error || "Failed to change password");
+    setPasswordLoading(true);
+    try {
+      const result = await changePassword(
+        session!.userId,
+        values.currentPassword,
+        values.newPassword,
+      );
+      if (result.success) {
+        setPasswordSuccess(true);
+        passwordForm.reset();
+        setTimeout(() => setPasswordSuccess(false), 3000);
+      } else {
+        setPasswordError(result.error || "Failed to change password");
+      }
+    } finally {
+      setPasswordLoading(false);
     }
-  };
-
-  const handleTestGAS = async () => {
-    if (!gasUrl) return;
-    setGasStatus("testing");
-    setGasError("");
-    const result = await testGASConnection(gasUrl);
-    if (result.success) {
-      setGasStatus("ok");
-      setGASUrl(gasUrl);
-    } else {
-      setGasStatus("error");
-      setGasError(result.error || "Connection failed");
-    }
-  };
-
-  const handleSaveGASUrl = () => {
-    setGASUrl(gasUrl);
-    setGasStatus("ok");
   };
 
   const handleBackup = () => {
     const json = backup();
     const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
     a.download = `fee-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
@@ -139,9 +124,11 @@ export default function SettingsPage() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const json = ev.target?.result as string;
+      const json   = ev.target?.result as string;
       const result = restore(json);
-      setRestoreMsg(result.success ? "Data restored successfully." : (result.error || "Restore failed."));
+      setRestoreMsg(
+        result.success ? "Data restored successfully." : (result.error || "Restore failed."),
+      );
       setTimeout(() => setRestoreMsg(""), 4000);
     };
     reader.readAsText(file);
@@ -152,14 +139,46 @@ export default function SettingsPage() {
     <AppLayout title="Settings">
       <div className="max-w-2xl mx-auto space-y-6">
 
-        {/* Coaching Profile */}
+        {/* ── Cloud Sync Status ────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Data Storage</CardTitle>
+            <CardDescription>Where your data is saved.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {gasEnabled ? (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
+                <Cloud className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-green-800">Cloud Sync Active</p>
+                  <p className="text-xs text-green-700 mt-0.5">
+                    Your data is automatically saved to Google Sheets and available on
+                    any device when you log in.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <HardDrive className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Local Storage Only</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Data is stored on this device only. Use "Download Backup" below to keep
+                    a copy safe.
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Coaching Profile ─────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
             <CardTitle>Coaching Profile</CardTitle>
             <CardDescription>This information appears on your PDF receipts.</CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Logo */}
             <div className="mb-5">
               <p className="text-sm font-medium text-foreground mb-2">Logo</p>
               <div className="flex items-center gap-4">
@@ -171,18 +190,32 @@ export default function SettingsPage() {
                   )}
                 </div>
                 <div>
-                  <Button variant="outline" size="sm" onClick={() => logoInputRef.current?.click()} data-testid="button-upload-logo">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => logoInputRef.current?.click()}
+                    data-testid="button-upload-logo"
+                  >
                     <Upload className="w-4 h-4 mr-2" />
                     Upload Logo
                   </Button>
                   <p className="text-xs text-muted-foreground mt-1">JPEG or PNG, max 500KB</p>
                   {logoPreview && (
-                    <button className="text-xs text-destructive mt-1 hover:underline" onClick={() => setLogoPreview("")}>
+                    <button
+                      className="text-xs text-destructive mt-1 hover:underline"
+                      onClick={() => setLogoPreview("")}
+                    >
                       Remove logo
                     </button>
                   )}
                 </div>
-                <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoChange}
+                />
               </div>
             </div>
 
@@ -233,7 +266,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Change Password */}
+        {/* ── Change Password ──────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
             <CardTitle>Change Password</CardTitle>
@@ -244,7 +277,9 @@ export default function SettingsPage() {
                 <FormField control={passwordForm.control} name="currentPassword" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Current Password</FormLabel>
-                    <FormControl><Input type="password" {...field} data-testid="input-current-password" /></FormControl>
+                    <FormControl>
+                      <Input type="password" {...field} data-testid="input-current-password" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -252,14 +287,18 @@ export default function SettingsPage() {
                   <FormField control={passwordForm.control} name="newPassword" render={({ field }) => (
                     <FormItem>
                       <FormLabel>New Password</FormLabel>
-                      <FormControl><Input type="password" {...field} data-testid="input-new-password" /></FormControl>
+                      <FormControl>
+                        <Input type="password" {...field} data-testid="input-new-password" />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={passwordForm.control} name="confirmPassword" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Confirm New Password</FormLabel>
-                      <FormControl><Input type="password" {...field} data-testid="input-confirm-new-password" /></FormControl>
+                      <FormControl>
+                        <Input type="password" {...field} data-testid="input-confirm-new-password" />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -275,68 +314,34 @@ export default function SettingsPage() {
                     <AlertDescription className="text-green-700">Password changed successfully.</AlertDescription>
                   </Alert>
                 )}
-                <Button type="submit" data-testid="button-change-password">Change Password</Button>
+                <Button type="submit" disabled={passwordLoading} data-testid="button-change-password">
+                  {passwordLoading ? "Saving…" : "Change Password"}
+                </Button>
               </form>
             </Form>
           </CardContent>
         </Card>
 
-        {/* Google Apps Script */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Google Sheets Sync</CardTitle>
-            <CardDescription>
-              Connect to Google Sheets via Apps Script to automatically backup your data to the cloud.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5">
-                Google Apps Script Web App URL
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  value={gasUrl}
-                  onChange={(e) => { setGasUrl(e.target.value); setGasStatus("idle"); }}
-                  className="flex-1"
-                  data-testid="input-gas-url"
-                />
-                <Button variant="outline" onClick={handleTestGAS} disabled={!gasUrl || gasStatus === "testing"}
-                  data-testid="button-test-gas">
-                  {gasStatus === "testing" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Test"}
-                </Button>
-                <Button onClick={handleSaveGASUrl} disabled={!gasUrl} data-testid="button-save-gas">
-                  Save
-                </Button>
-              </div>
-              {gasStatus === "ok" && (
-                <p className="text-xs text-green-600 flex items-center gap-1 mt-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Connected successfully
-                </p>
-              )}
-              {gasStatus === "error" && (
-                <p className="text-xs text-destructive flex items-center gap-1 mt-1.5">
-                  <XCircle className="w-3.5 h-3.5" /> {gasError}
-                </p>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              See the setup guide in <code className="bg-muted px-1 py-0.5 rounded text-xs">google-apps-script/SETUP_GUIDE.md</code> for step-by-step instructions.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Backup & Restore */}
+        {/* ── Backup & Restore ─────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
             <CardTitle>Backup & Restore</CardTitle>
-            <CardDescription>Export all your data as a JSON file or restore from a previous backup.</CardDescription>
+            <CardDescription>
+              Export all your data as a JSON file or restore from a previous backup.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {restoreMsg && (
-              <Alert className={restoreMsg.includes("success") ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-                <AlertDescription className={restoreMsg.includes("success") ? "text-green-700" : "text-red-700"}>
+              <Alert
+                className={
+                  restoreMsg.includes("success")
+                    ? "border-green-200 bg-green-50"
+                    : "border-red-200 bg-red-50"
+                }
+              >
+                <AlertDescription
+                  className={restoreMsg.includes("success") ? "text-green-700" : "text-red-700"}
+                >
                   {restoreMsg}
                 </AlertDescription>
               </Alert>
@@ -346,19 +351,29 @@ export default function SettingsPage() {
                 <Download className="w-4 h-4 mr-2" />
                 Download Backup
               </Button>
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()} data-testid="button-restore">
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                data-testid="button-restore"
+              >
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Restore from Backup
               </Button>
-              <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleRestore} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleRestore}
+              />
             </div>
             <p className="text-xs text-muted-foreground">
-              Restoring from a backup will merge the backup data with your existing data without deleting anything.
+              Restoring from a backup will merge the backup data with your existing data.
             </p>
           </CardContent>
         </Card>
 
-        {/* Account Info */}
+        {/* ── Account Info ─────────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
             <CardTitle>Account</CardTitle>

@@ -1,103 +1,110 @@
 /**
- * Student Fee Tracker - Google Apps Script Backend
- * ================================================
- * Paste this entire file into your Google Apps Script project.
- * See SETUP_GUIDE.md for step-by-step instructions.
+ * Student Fee Tracker — Google Apps Script Backend
+ * =================================================
+ * ONE-TIME SETUP (app owner only — end users never do this):
  *
- * Endpoints (all via POST with JSON body):
- *   action: "auth"      — login / signup / changePassword
- *   action: "students"  — CRUD for students
- *   action: "payments"  — CRUD for payments
- *   action: "profile"   — get/set coaching profile
- *   action: "backup"    — export all user data
- *   action: "restore"   — import data from backup
+ *  1. Go to https://script.google.com and create a new project.
+ *  2. Paste this entire file into the editor and save.
+ *  3. Click Deploy → New deployment → Web app.
+ *     · Execute as:    Me
+ *     · Who has access: Anyone
+ *  4. Copy the Web app URL (looks like https://script.google.com/macros/s/…/exec).
+ *  5. In Netlify: Site settings → Environment variables → add
+ *       VITE_GAS_URL = <paste the URL>
+ *  6. Trigger a new Netlify deploy.
+ *
+ * That's it. Google Sheets are created automatically on first use.
+ * End users just sign up and use the app — no configuration needed.
+ *
+ * ─── Sheet structure (auto-created) ─────────────────────────────────────────
+ *   Users    : userId | username | passwordHash | coachingId | createdAt
+ *   Students : id | userId | name | parentName | mobile | email | address |
+ *              batch | className | totalFee | admissionDate | status | createdAt | updatedAt
+ *   Payments : id | userId | studentId | receiptNumber | amountPaid |
+ *              paymentDate | paymentType | dueDate | notes | createdAt
+ *   Profiles : id | userId | name | ownerName | mobile | address | updatedAt
+ *              (logo is NOT synced — too large for Sheets; stays device-local)
  */
 
-// ─── CONFIGURATION ───────────────────────────────────────────────────────────
-
-const SHEET_NAMES = {
+const SHEET = {
   USERS:    "Users",
   STUDENTS: "Students",
   PAYMENTS: "Payments",
   PROFILES: "Profiles",
 };
 
-// ─── MAIN ENTRY POINT ────────────────────────────────────────────────────────
+// ─── Entry points ─────────────────────────────────────────────────────────────
+
+function doGet(e) {
+  return respond({ status: "ok", message: "Fee Tracker API is running." });
+}
 
 function doPost(e) {
   try {
-    const body = JSON.parse(e.postData.contents);
-    const { action, payload } = body;
+    const body     = JSON.parse(e.postData.contents);
+    const action   = body.action;
+    const payload  = body.payload || {};
 
     let result;
     switch (action) {
-      case "auth":      result = handleAuth(payload);     break;
-      case "students":  result = handleStudents(payload); break;
-      case "payments":  result = handlePayments(payload); break;
-      case "profile":   result = handleProfile(payload);  break;
-      case "backup":    result = handleBackup(payload);   break;
-      case "restore":   result = handleRestore(payload);  break;
+      case "auth":     result = handleAuth(payload);     break;
+      case "students": result = handleStudents(payload); break;
+      case "payments": result = handlePayments(payload); break;
+      case "profile":  result = handleProfile(payload);  break;
       default:
         result = { success: false, error: "Unknown action: " + action };
     }
-
-    return ContentService
-      .createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
-
+    return respond(result);
   } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return respond({ success: false, error: err.message });
   }
 }
 
-function doGet(e) {
+function respond(data) {
   return ContentService
-    .createTextOutput(JSON.stringify({ status: "ok", message: "Fee Tracker API is running." }))
+    .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ─── SHEET HELPERS ────────────────────────────────────────────────────────────
+// ─── Sheet helpers ────────────────────────────────────────────────────────────
+
+const HEADERS = {
+  [SHEET.USERS]:    ["userId", "username", "passwordHash", "coachingId", "createdAt"],
+  [SHEET.STUDENTS]: ["id", "userId", "name", "parentName", "mobile", "email", "address",
+                     "batch", "className", "totalFee", "admissionDate", "status", "createdAt", "updatedAt"],
+  [SHEET.PAYMENTS]: ["id", "userId", "studentId", "receiptNumber", "amountPaid",
+                     "paymentDate", "paymentType", "dueDate", "notes", "createdAt"],
+  [SHEET.PROFILES]: ["id", "userId", "name", "ownerName", "mobile", "address", "updatedAt"],
+};
 
 function getSheet(name) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(name);
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  let   sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
-    initSheet(sheet, name);
+    const headers = HEADERS[name] || [];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
   }
   return sheet;
-}
-
-function initSheet(sheet, name) {
-  const headers = {
-    [SHEET_NAMES.USERS]:    ["id", "username", "passwordHash", "coachingId", "createdAt"],
-    [SHEET_NAMES.STUDENTS]: ["id", "userId", "name", "parentName", "mobile", "email", "address", "batch", "className", "totalFee", "admissionDate", "status", "createdAt", "updatedAt"],
-    [SHEET_NAMES.PAYMENTS]: ["id", "userId", "studentId", "receiptNumber", "amountPaid", "paymentDate", "paymentType", "dueDate", "notes", "createdAt"],
-    [SHEET_NAMES.PROFILES]: ["id", "userId", "name", "ownerName", "mobile", "address", "logoBase64", "updatedAt"],
-  };
-  if (headers[name]) {
-    sheet.appendRow(headers[name]);
-    sheet.getRange(1, 1, 1, headers[name].length).setFontWeight("bold");
-  }
 }
 
 function sheetToObjects(sheet) {
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return [];
   const headers = data[0];
-  return data.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i]; });
+  return data.slice(1).map(function(row) {
+    var obj = {};
+    headers.forEach(function(h, i) { obj[h] = row[i]; });
     return obj;
   });
 }
 
-function findRowById(sheet, id) {
+function findRowIndex(sheet, colIndex, value) {
+  // Returns 1-based row index or -1 if not found (skips header row 1)
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === id) return i + 1; // 1-indexed
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][colIndex]) === String(value)) return i + 1;
   }
   return -1;
 }
@@ -106,137 +113,187 @@ function generateId() {
   return Utilities.getUuid();
 }
 
-// ─── AUTH HANDLER ─────────────────────────────────────────────────────────────
-
-function handleAuth(payload) {
-  const { method } = payload;
-
-  if (method === "signup") {
-    return authSignup(payload);
-  } else if (method === "login") {
-    return authLogin(payload);
-  } else if (method === "changePassword") {
-    return authChangePassword(payload);
-  }
-  return { success: false, error: "Unknown auth method" };
-}
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 function hashPassword(password) {
   const bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
-    password,
+    String(password),
     Utilities.Charset.UTF_8
   );
-  return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+  return bytes.map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
 }
 
-function authSignup({ username, password, coachingName }) {
-  const sheet = getSheet(SHEET_NAMES.USERS);
-  const users = sheetToObjects(sheet);
+function handleAuth(payload) {
+  switch (payload.method) {
+    case "signup":         return authSignup(payload);
+    case "login":          return authLogin(payload);
+    case "changePassword": return authChangePassword(payload);
+    default:
+      return { success: false, error: "Unknown auth method: " + payload.method };
+  }
+}
 
-  if (users.find(u => u.username === username)) {
-    return { success: false, error: "Username already exists" };
+function authSignup(p) {
+  var username    = String(p.username || "").trim();
+  var password    = String(p.password || "");
+  var coachingName = String(p.coachingName || "My Coaching");
+
+  if (!username || username.length < 3)
+    return { success: false, error: "Username must be at least 3 characters." };
+  if (!password || password.length < 6)
+    return { success: false, error: "Password must be at least 6 characters." };
+
+  var sheet = getSheet(SHEET.USERS);
+  var users = sheetToObjects(sheet);
+
+  if (users.find(function(u) { return u.username.toLowerCase() === username.toLowerCase(); })) {
+    return { success: false, error: "Username already taken. Please choose another." };
   }
 
-  const id = generateId();
-  const coachingId = generateId();
-  const passwordHash = hashPassword(password);
-  const now = new Date().toISOString();
+  var userId     = generateId();
+  var coachingId = generateId();
+  var now        = new Date().toISOString();
 
-  sheet.appendRow([id, username, passwordHash, coachingId, now]);
+  sheet.appendRow([userId, username, hashPassword(password), coachingId, now]);
 
-  // Create default coaching profile
-  const profileSheet = getSheet(SHEET_NAMES.PROFILES);
-  profileSheet.appendRow([coachingId, id, coachingName || "My Coaching", "", "", "", "", now]);
+  // Create default profile
+  var profileSheet = getSheet(SHEET.PROFILES);
+  profileSheet.appendRow([coachingId, userId, coachingName, "", "", "", now]);
 
   return {
     success: true,
-    user: { id, username, coachingId },
+    user: { id: userId, username: username, coachingId: coachingId },
   };
 }
 
-function authLogin({ username, password }) {
-  const sheet = getSheet(SHEET_NAMES.USERS);
-  const users = sheetToObjects(sheet);
-  const passwordHash = hashPassword(password);
+function authLogin(p) {
+  var username = String(p.username || "").trim();
+  var password = String(p.password || "");
 
-  const user = users.find(u => u.username === username && u.passwordHash === passwordHash);
+  var sheet    = getSheet(SHEET.USERS);
+  var users    = sheetToObjects(sheet);
+  var pwHash   = hashPassword(password);
+
+  var user = users.find(function(u) {
+    return u.username.toLowerCase() === username.toLowerCase() &&
+           String(u.passwordHash)   === pwHash;
+  });
+
   if (!user) {
-    return { success: false, error: "Invalid username or password" };
+    return { success: false, error: "Invalid username or password." };
   }
 
+  // Fetch all user data and return it with the login response
+  // so the frontend can hydrate localStorage in one round trip.
+  var students = fetchStudents(String(user.userId));
+  var payments = fetchPayments(String(user.userId));
+  var profile  = fetchProfile(String(user.userId));
+
   return {
-    success: true,
-    user: { id: user.id, username: user.username, coachingId: user.coachingId },
+    success:  true,
+    user:     { id: String(user.userId), username: String(user.username), coachingId: String(user.coachingId) },
+    students: students,
+    payments: payments,
+    profile:  profile,
   };
 }
 
-function authChangePassword({ userId, currentPassword, newPassword }) {
-  const sheet = getSheet(SHEET_NAMES.USERS);
-  const users = sheetToObjects(sheet);
-  const currentHash = hashPassword(currentPassword);
+function authChangePassword(p) {
+  var userId          = String(p.userId || "");
+  var currentPassword = String(p.currentPassword || "");
+  var newPassword     = String(p.newPassword || "");
 
-  const userIndex = users.findIndex(u => u.id === userId && u.passwordHash === currentHash);
-  if (userIndex === -1) {
-    return { success: false, error: "Current password is incorrect" };
+  if (newPassword.length < 6)
+    return { success: false, error: "New password must be at least 6 characters." };
+
+  var sheet = getSheet(SHEET.USERS);
+  var users = sheetToObjects(sheet);
+  var idx   = -1;
+
+  for (var i = 0; i < users.length; i++) {
+    if (String(users[i].userId) === userId &&
+        String(users[i].passwordHash) === hashPassword(currentPassword)) {
+      idx = i;
+      break;
+    }
   }
 
-  const rowIndex = userIndex + 2; // +1 for header, +1 for 1-indexed
-  const newHash = hashPassword(newPassword);
-  sheet.getRange(rowIndex, 3).setValue(newHash); // column 3 = passwordHash
+  if (idx === -1) return { success: false, error: "Current password is incorrect." };
 
+  // Column 3 (0-indexed) = passwordHash; row = idx + 2 (header + 1-based)
+  sheet.getRange(idx + 2, 3).setValue(hashPassword(newPassword));
   return { success: true };
 }
 
-// ─── STUDENTS HANDLER ─────────────────────────────────────────────────────────
+// ─── Students ─────────────────────────────────────────────────────────────────
 
 function handleStudents(payload) {
-  const { method, userId } = payload;
-
-  if (!userId) return { success: false, error: "userId required" };
-
-  switch (method) {
-    case "list":   return studentsGetAll(userId);
+  if (!payload.userId) return { success: false, error: "userId required" };
+  switch (payload.method) {
     case "create": return studentsCreate(payload);
     case "update": return studentsUpdate(payload);
     case "delete": return studentsDelete(payload);
-    default:       return { success: false, error: "Unknown students method" };
+    default:
+      return { success: false, error: "Unknown students method: " + payload.method };
   }
 }
 
-function studentsGetAll(userId) {
-  const sheet = getSheet(SHEET_NAMES.STUDENTS);
-  const all = sheetToObjects(sheet);
-  const students = all.filter(s => s.userId === userId);
-  return { success: true, data: students };
+function fetchStudents(userId) {
+  var sheet = getSheet(SHEET.STUDENTS);
+  var all   = sheetToObjects(sheet);
+  return all
+    .filter(function(s) { return String(s.userId) === userId; })
+    .map(function(s) {
+      return {
+        id:            String(s.id),
+        userId:        String(s.userId),
+        name:          String(s.name),
+        parentName:    String(s.parentName),
+        mobile:        String(s.mobile),
+        email:         String(s.email   || ""),
+        address:       String(s.address || ""),
+        batch:         String(s.batch),
+        className:     String(s.className),
+        totalFee:      Number(s.totalFee),
+        admissionDate: String(s.admissionDate),
+        status:        String(s.status) === "active" ? "active" : "inactive",
+        createdAt:     String(s.createdAt),
+      };
+    });
 }
 
-function studentsCreate({ userId, student }) {
-  const sheet = getSheet(SHEET_NAMES.STUDENTS);
-  const id = generateId();
-  const now = new Date().toISOString();
+function studentsCreate(p) {
+  var sheet   = getSheet(SHEET.STUDENTS);
+  var student = p.student;
+  var now     = new Date().toISOString();
+  var id      = String(student.id || generateId());
 
   sheet.appendRow([
-    id, userId,
+    id, p.userId,
     student.name, student.parentName, student.mobile,
     student.email || "", student.address || "",
     student.batch, student.className,
     Number(student.totalFee), student.admissionDate,
     student.status || "active",
-    now, now,
+    student.createdAt || now, now,
   ]);
-
-  return { success: true, data: { id, ...student, userId, createdAt: now, updatedAt: now } };
+  return { success: true };
 }
 
-function studentsUpdate({ student }) {
-  const sheet = getSheet(SHEET_NAMES.STUDENTS);
-  const rowIndex = findRowById(sheet, student.id);
-  if (rowIndex === -1) return { success: false, error: "Student not found" };
+function studentsUpdate(p) {
+  var sheet   = getSheet(SHEET.STUDENTS);
+  var student = p.student;
+  var rowIdx  = findRowIndex(sheet, 0, student.id); // col 0 = id
+  var now     = new Date().toISOString();
 
-  const now = new Date().toISOString();
-  const row = [
-    student.id, student.userId,
+  if (rowIdx === -1) {
+    // Not in sheet yet — insert it
+    return studentsCreate(p);
+  }
+
+  var row = [
+    String(student.id), p.userId,
     student.name, student.parentName, student.mobile,
     student.email || "", student.address || "",
     student.batch, student.className,
@@ -244,173 +301,111 @@ function studentsUpdate({ student }) {
     student.status,
     student.createdAt || now, now,
   ];
-  sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
-
-  return { success: true, data: { ...student, updatedAt: now } };
-}
-
-function studentsDelete({ studentId }) {
-  const sheet = getSheet(SHEET_NAMES.STUDENTS);
-  const rowIndex = findRowById(sheet, studentId);
-  if (rowIndex === -1) return { success: false, error: "Student not found" };
-
-  sheet.deleteRow(rowIndex);
+  sheet.getRange(rowIdx, 1, 1, row.length).setValues([row]);
   return { success: true };
 }
 
-// ─── PAYMENTS HANDLER ─────────────────────────────────────────────────────────
+function studentsDelete(p) {
+  var sheet  = getSheet(SHEET.STUDENTS);
+  var rowIdx = findRowIndex(sheet, 0, p.studentId);
+  if (rowIdx !== -1) sheet.deleteRow(rowIdx);
+  return { success: true };
+}
+
+// ─── Payments ─────────────────────────────────────────────────────────────────
 
 function handlePayments(payload) {
-  const { method, userId } = payload;
-
-  if (!userId) return { success: false, error: "userId required" };
-
-  switch (method) {
-    case "list":   return paymentsGetAll(userId);
+  if (!payload.userId) return { success: false, error: "userId required" };
+  switch (payload.method) {
     case "create": return paymentsCreate(payload);
     case "delete": return paymentsDelete(payload);
-    default:       return { success: false, error: "Unknown payments method" };
+    default:
+      return { success: false, error: "Unknown payments method: " + payload.method };
   }
 }
 
-function paymentsGetAll(userId) {
-  const sheet = getSheet(SHEET_NAMES.PAYMENTS);
-  const all = sheetToObjects(sheet);
-  const payments = all.filter(p => p.userId === userId);
-  return { success: true, data: payments };
+function fetchPayments(userId) {
+  var sheet = getSheet(SHEET.PAYMENTS);
+  var all   = sheetToObjects(sheet);
+  return all
+    .filter(function(p) { return String(p.userId) === userId; })
+    .map(function(p) {
+      return {
+        id:            String(p.id),
+        userId:        String(p.userId),
+        studentId:     String(p.studentId),
+        receiptNumber: String(p.receiptNumber),
+        amountPaid:    Number(p.amountPaid),
+        paymentDate:   String(p.paymentDate),
+        paymentType:   String(p.paymentType) === "full" ? "full" : "partial",
+        dueDate:       String(p.dueDate || ""),
+        notes:         String(p.notes  || ""),
+        createdAt:     String(p.createdAt),
+      };
+    });
 }
 
-function paymentsCreate({ userId, payment }) {
-  const sheet = getSheet(SHEET_NAMES.PAYMENTS);
-  const id = generateId();
-  const now = new Date().toISOString();
+function paymentsCreate(p) {
+  var sheet   = getSheet(SHEET.PAYMENTS);
+  var payment = p.payment;
+  var id      = String(payment.id || generateId());
+  var now     = new Date().toISOString();
 
   sheet.appendRow([
-    id, userId, payment.studentId,
+    id, p.userId, payment.studentId,
     payment.receiptNumber, Number(payment.amountPaid),
     payment.paymentDate, payment.paymentType,
     payment.dueDate || "", payment.notes || "",
-    now,
+    payment.createdAt || now,
   ]);
-
-  return { success: true, data: { id, ...payment, userId, createdAt: now } };
-}
-
-function paymentsDelete({ paymentId }) {
-  const sheet = getSheet(SHEET_NAMES.PAYMENTS);
-  const rowIndex = findRowById(sheet, paymentId);
-  if (rowIndex === -1) return { success: false, error: "Payment not found" };
-
-  sheet.deleteRow(rowIndex);
   return { success: true };
 }
 
-// ─── PROFILE HANDLER ─────────────────────────────────────────────────────────
+function paymentsDelete(p) {
+  var sheet  = getSheet(SHEET.PAYMENTS);
+  var rowIdx = findRowIndex(sheet, 0, p.paymentId);
+  if (rowIdx !== -1) sheet.deleteRow(rowIdx);
+  return { success: true };
+}
+
+// ─── Profiles ─────────────────────────────────────────────────────────────────
 
 function handleProfile(payload) {
-  const { method, userId } = payload;
-
-  if (!userId) return { success: false, error: "userId required" };
-
-  if (method === "get") {
-    return profileGet(userId);
-  } else if (method === "update") {
-    return profileUpdate(payload);
-  }
-  return { success: false, error: "Unknown profile method" };
+  if (!payload.userId) return { success: false, error: "userId required" };
+  if (payload.method === "update") return profileUpdate(payload);
+  return { success: false, error: "Unknown profile method: " + payload.method };
 }
 
-function profileGet(userId) {
-  const sheet = getSheet(SHEET_NAMES.PROFILES);
-  const all = sheetToObjects(sheet);
-  const profile = all.find(p => p.userId === userId);
-  if (!profile) return { success: false, error: "Profile not found" };
-  return { success: true, data: profile };
-}
-
-function profileUpdate({ userId, profile }) {
-  const sheet = getSheet(SHEET_NAMES.PROFILES);
-  const all = sheetToObjects(sheet);
-  const idx = all.findIndex(p => p.userId === userId);
-  const now = new Date().toISOString();
-
-  const row = [
-    profile.id || generateId(), userId,
-    profile.name, profile.ownerName,
-    profile.mobile, profile.address,
-    profile.logoBase64 || "", now,
-  ];
-
-  if (idx === -1) {
-    sheet.appendRow(row);
-  } else {
-    sheet.getRange(idx + 2, 1, 1, row.length).setValues([row]);
-  }
-
-  return { success: true, data: { ...profile, userId, updatedAt: now } };
-}
-
-// ─── BACKUP / RESTORE ─────────────────────────────────────────────────────────
-
-function handleBackup({ userId }) {
-  if (!userId) return { success: false, error: "userId required" };
-
-  const students = studentsGetAll(userId).data || [];
-  const payments = paymentsGetAll(userId).data || [];
-  const profile  = profileGet(userId).data || null;
-
+function fetchProfile(userId) {
+  var sheet = getSheet(SHEET.PROFILES);
+  var all   = sheetToObjects(sheet);
+  var row   = all.find(function(p) { return String(p.userId) === userId; });
+  if (!row) return null;
   return {
-    success: true,
-    data: {
-      exportedAt: new Date().toISOString(),
-      userId,
-      students,
-      payments,
-      profile,
-    },
+    id:        String(row.id),
+    userId:    String(row.userId),
+    name:      String(row.name),
+    ownerName: String(row.ownerName || ""),
+    mobile:    String(row.mobile    || ""),
+    address:   String(row.address   || ""),
+    // logoBase64 intentionally not stored in Sheets (too large)
   };
 }
 
-function handleRestore({ userId, backup }) {
-  if (!userId || !backup) return { success: false, error: "userId and backup required" };
+function profileUpdate(p) {
+  var sheet   = getSheet(SHEET.PROFILES);
+  var profile = p.profile;
+  var now     = new Date().toISOString();
+  var rowIdx  = findRowIndex(sheet, 1, p.userId); // col 1 = userId
 
-  // Restore profile
-  if (backup.profile) {
-    profileUpdate({ userId, profile: backup.profile });
+  var id  = String(profile.id || generateId());
+  var row = [id, p.userId, profile.name, profile.ownerName || "",
+             profile.mobile || "", profile.address || "", now];
+
+  if (rowIdx === -1) {
+    sheet.appendRow(row);
+  } else {
+    sheet.getRange(rowIdx, 1, 1, row.length).setValues([row]);
   }
-
-  // Restore students
-  const studentSheet = getSheet(SHEET_NAMES.STUDENTS);
-  const allStudents = sheetToObjects(studentSheet);
-  const existingIds = new Set(allStudents.map(s => s.id));
-
-  (backup.students || []).forEach(student => {
-    if (!existingIds.has(student.id)) {
-      studentSheet.appendRow([
-        student.id, userId, student.name, student.parentName, student.mobile,
-        student.email || "", student.address || "", student.batch, student.className,
-        Number(student.totalFee), student.admissionDate, student.status || "active",
-        student.createdAt || new Date().toISOString(), student.updatedAt || new Date().toISOString(),
-      ]);
-    }
-  });
-
-  // Restore payments
-  const paymentSheet = getSheet(SHEET_NAMES.PAYMENTS);
-  const allPayments = sheetToObjects(paymentSheet);
-  const existingPaymentIds = new Set(allPayments.map(p => p.id));
-
-  (backup.payments || []).forEach(payment => {
-    if (!existingPaymentIds.has(payment.id)) {
-      paymentSheet.appendRow([
-        payment.id, userId, payment.studentId,
-        payment.receiptNumber, Number(payment.amountPaid),
-        payment.paymentDate, payment.paymentType,
-        payment.dueDate || "", payment.notes || "",
-        payment.createdAt || new Date().toISOString(),
-      ]);
-    }
-  });
-
-  return { success: true, message: "Restore completed" };
+  return { success: true };
 }
