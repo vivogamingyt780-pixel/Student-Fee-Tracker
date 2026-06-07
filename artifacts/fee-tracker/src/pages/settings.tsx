@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Upload, Download, RotateCcw, CheckCircle2, Cloud, HardDrive } from "lucide-react";
+import { Save, Upload, Download, RotateCcw, CheckCircle2, Cloud } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useData } from "@/contexts/DataContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,7 +38,7 @@ type PasswordValues = z.infer<typeof passwordSchema>;
 
 export default function SettingsPage() {
   const { profile, updateProfile, backup, restore } = useData();
-  const { session, gasEnabled } = useAuth();
+  const { session } = useAuth();
   const [logoPreview,     setLogoPreview]     = useState(profile?.logoBase64 || "");
   const [profileSuccess,  setProfileSuccess]  = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
@@ -143,32 +143,18 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Data Storage</CardTitle>
-            <CardDescription>Where your data is saved.</CardDescription>
           </CardHeader>
           <CardContent>
-            {gasEnabled ? (
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
-                <Cloud className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-green-800">Cloud Sync Active</p>
-                  <p className="text-xs text-green-700 mt-0.5">
-                    Your data is automatically saved to Google Sheets and available on
-                    any device when you log in.
-                  </p>
-                </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
+              <Cloud className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-green-800">Google Sheets — Connected</p>
+                <p className="text-xs text-green-700 mt-0.5">
+                  All student, fee, and receipt data is automatically saved to Google Sheets
+                  and available on any device when you log in.
+                </p>
               </div>
-            ) : (
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                <HardDrive className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-800">Local Storage Only</p>
-                  <p className="text-xs text-amber-700 mt-0.5">
-                    Data is stored on this device only. Use "Download Backup" below to keep
-                    a copy safe.
-                  </p>
-                </div>
-              </div>
-            )}
+            </div>
           </CardContent>
         </Card>
 
@@ -179,6 +165,7 @@ export default function SettingsPage() {
             <CardDescription>This information appears on your PDF receipts.</CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Logo */}
             <div className="mb-5">
               <p className="text-sm font-medium text-foreground mb-2">Logo</p>
               <div className="flex items-center gap-4">
@@ -247,7 +234,9 @@ export default function SettingsPage() {
                 <FormField control={profileForm.control} name="address" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Address</FormLabel>
-                    <FormControl><Textarea rows={2} {...field} data-testid="input-profile-address" /></FormControl>
+                    <FormControl>
+                      <Textarea rows={2} {...field} data-testid="input-profile-address" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

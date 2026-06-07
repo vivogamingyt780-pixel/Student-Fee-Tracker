@@ -6,14 +6,13 @@ import {
   signup as authSignup,
   type Session,
 } from "@/services/auth";
-import { mergeCloudData, clearSampleData } from "@/services/data";
-import { isGASConfigured } from "@/services/gasApi";
+import { mergeCloudData, clearSampleData, syncCurrentStateToGAS } from "@/services/data";
 
 interface AuthContextType {
-  session:      Session | null;
-  isLoading:    boolean;
-  isSyncing:    boolean;   // true while fetching cloud data on login
-  gasEnabled:   boolean;   // whether the app is connected to Google Sheets
+  session:   Session | null;
+  isLoading: boolean;
+  /** True while an async GAS call is in progress (login / signup). */
+  isSyncing: boolean;
   login:   (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signup:  (username: string, password: string, coachingName: string) => Promise<{ success: boolean; error?: string }>;
   logout:  () => void;
@@ -40,8 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await authLogin(username, password);
       if (result.success && result.session) {
-        // Merge cloud data into localStorage BEFORE setting session so
-        // DataContext's useEffect reads the merged data when userId changes.
+        // Merge GAS data into localStorage BEFORE setting the session so that
+        // DataContext's useEffect reads the fresh cloud data when userId changes.
         if (result.cloudData) {
           mergeCloudData(result.session.userId, result.cloudData);
         }
@@ -68,22 +67,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    if (session) {
+      // Best-effort bulk sync before clearing the session — catches any
+      // per-mutation fire-and-forget calls that may not have completed yet.
+      syncCurrentStateToGAS(session.userId);
+    }
     authLogout();
     setSession(null);
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        session,
-        isLoading,
-        isSyncing,
-        gasEnabled: isGASConfigured(),
-        login,
-        signup,
-        logout,
-      }}
-    >
+    <AuthContext.Provider value={{ session, isLoading, isSyncing, login, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );
