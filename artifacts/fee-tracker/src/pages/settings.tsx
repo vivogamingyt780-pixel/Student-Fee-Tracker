@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Upload, Download, RotateCcw, CheckCircle2, Cloud } from "lucide-react";
+import { Save, Upload, Download, RotateCcw, CheckCircle2, Cloud, HardDrive } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useData } from "@/contexts/DataContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { changePassword } from "@/services/auth";
+import { isGASConfigured } from "@/services/gasApi";
 import type { CoachingProfile } from "@/services/data";
 
 const profileSchema = z.object({
@@ -145,16 +146,29 @@ export default function SettingsPage() {
             <CardTitle>Data Storage</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
-              <Cloud className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-green-800">Google Sheets — Connected</p>
-                <p className="text-xs text-green-700 mt-0.5">
-                  All student, fee, and receipt data is automatically saved to Google Sheets
-                  and available on any device when you log in.
-                </p>
+            {isGASConfigured() ? (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
+                <Cloud className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-green-800">Google Sheets — Connected</p>
+                  <p className="text-xs text-green-700 mt-0.5">
+                    All student, fee, and receipt data is automatically saved to Google Sheets
+                    and available on any device when you log in.
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                <HardDrive className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-blue-800">Local Storage — Active</p>
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    Your data is saved on this device. Use the Backup option below to keep a
+                    copy, or restore data on a new device.
+                  </p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

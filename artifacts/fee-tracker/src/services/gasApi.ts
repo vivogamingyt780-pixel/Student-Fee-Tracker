@@ -1,14 +1,12 @@
 /**
  * Google Apps Script API client.
  *
- * VITE_GAS_URL must be set by the app owner as a Netlify environment variable.
- * End users never configure anything — they just sign up and use the app.
+ * VITE_GAS_URL is optional. When absent the app runs in local-storage-only
+ * mode — all auth and data functions still work, GAS sync is just skipped.
  *
  * CORS strategy: POST with no Content-Type header → browser treats body as
  * text/plain (a "simple" CORS request) → no OPTIONS preflight needed.
  * GAS reads e.postData.contents regardless of Content-Type.
- * The redirect to script.googleusercontent.com carries the CORS headers so
- * fetch() can read the JSON response.
  */
 
 const GAS_URL = (import.meta.env.VITE_GAS_URL as string | undefined) ?? "";
@@ -55,6 +53,8 @@ export interface GASAuthResult {
   payments?: unknown[];
   profile?: unknown;
   error?: string;
+  /** True when GAS URL is not configured — caller should fall back to local. */
+  gasNotConfigured?: boolean;
 }
 
 export async function gasSignup(
@@ -62,14 +62,14 @@ export async function gasSignup(
   password: string,
   coachingName: string,
 ): Promise<GASAuthResult> {
-  if (!GAS_URL) return { success: false, error: "App is not configured. Please contact the administrator." };
+  if (!GAS_URL) return { success: false, gasNotConfigured: true };
   try {
     return await gasPost<GASAuthResult>({
       action: "auth",
       payload: { method: "signup", username, password, coachingName },
     });
   } catch {
-    return { success: false, error: "Cannot connect to the server. Please check your internet connection." };
+    return { success: false, gasNotConfigured: true };
   }
 }
 
@@ -77,14 +77,14 @@ export async function gasLogin(
   username: string,
   password: string,
 ): Promise<GASAuthResult> {
-  if (!GAS_URL) return { success: false, error: "App is not configured. Please contact the administrator." };
+  if (!GAS_URL) return { success: false, gasNotConfigured: true };
   try {
     return await gasPost<GASAuthResult>({
       action: "auth",
       payload: { method: "login", username, password },
     });
   } catch {
-    return { success: false, error: "Cannot connect to the server. Please check your internet connection." };
+    return { success: false, gasNotConfigured: true };
   }
 }
 
@@ -93,14 +93,14 @@ export async function gasChangePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!GAS_URL) return { success: false, error: "App is not configured." };
+  if (!GAS_URL) return { success: true };
   try {
     return await gasPost<{ success: boolean; error?: string }>({
       action: "auth",
       payload: { method: "changePassword", userId, currentPassword, newPassword },
     });
   } catch {
-    return { success: false, error: "Cannot connect to the server." };
+    return { success: true }; // local already updated; GAS failure is non-fatal
   }
 }
 
@@ -134,7 +134,7 @@ export function gasSyncProfile(
   gasFire({ action: "profile", payload: { method: "update", userId, profile: profileWithoutLogo } });
 }
 
-// ─── Bulk sync (fire-and-forget) — called on logout to flush any pending changes ──
+// ─── Bulk sync (fire-and-forget) — called on logout ───────────────────────────
 
 /**
  * Sends the complete current state for a user to GAS in one request.
