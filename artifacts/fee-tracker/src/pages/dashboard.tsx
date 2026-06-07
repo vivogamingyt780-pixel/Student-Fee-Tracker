@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { generateReceiptPDF } from "@/services/receipt";
 import { useAuth } from "@/contexts/AuthContext";
+import type { DashboardStats } from "@/services/data";
 
 function StatCard({ title, value, icon: Icon, color, subtitle }: {
   title: string; value: string; icon: React.ElementType; color: string; subtitle?: string;
@@ -40,7 +41,7 @@ export default function DashboardPage() {
     catch { return dateStr; }
   };
 
-  const handleDownloadReceipt = (payment: typeof stats extends null ? never : (typeof stats)["recentPayments"][0]) => {
+  const handleDownloadReceipt = (payment: DashboardStats["recentPayments"][0]) => {
     const student = students.find((s) => s.id === payment.studentId);
     if (!student || !profile) return;
     const allPayments = getPaymentsForStudent(student.id);

@@ -118,7 +118,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-4">
-          Your data is stored locally and syncs to Google Sheets.
+          Your data is securely stored in Google Sheets.
         </p>
       </div>
     </div>
